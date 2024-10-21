@@ -3,6 +3,6 @@
 set -xe
 
 CC=gcc
-CFLAGS="-Wall -Wextra -Wpedantic -g"
+FLAGS="-Wall -Wextra -Wpedantic -fsanitize=address,undefined -fsanitize-trap -Wconversion -Wdouble-promotion -Wno-unused-parameter -Wno-unused-function -g3"
 
-$CC $CFLAGS ./main.c -o ./main
+$CC $FLAGS ./main.c -o ./main
