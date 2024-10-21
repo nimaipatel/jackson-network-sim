@@ -54,10 +54,47 @@ typedef struct {
     uint64_t total_jobs;
 } Simulation;
 
+typedef struct
+{
+#define DIST_INIT_SIZE 0x10
+    double *items;
+    size_t cap;
+} Dist;
+
 static inline size_t
 max_size_t(const size_t a, const size_t b)
 {
     return a > b ? a : b;
+}
+
+static void
+Dist_Add(Dist *dist, size_t index, double amount)
+{
+    if (index + 1 > dist->cap) {
+        size_t cap = max_size_t(DIST_INIT_SIZE, 2 * index);
+        dist->items = realloc(dist->items, sizeof(dist->items[0]) * cap);
+
+        for (size_t i = dist->cap; i < cap; i += 1) {
+            dist->items[i] = 0;
+        }
+
+        dist->cap = cap;
+    }
+
+    dist->items[index] += amount;
+}
+
+static void
+Dist_Normalize(Dist *dist)
+{
+    double total = 0;
+    for (size_t i = 0; i < dist->cap; i += 1) {
+        total += dist->items[i];
+    }
+
+    for (size_t i = 0; i < dist->cap; i += 1) {
+        dist->items[i] /= total;
+    }
 }
 
 static bool
@@ -222,13 +259,44 @@ Start_Service_1(Simulation *s, uint64_t job_id)
 }
 
 static void
+Start_Service_2(Simulation *s, uint64_t job_id)
+{
+    s->server_2_busy = true;
+
+    double service_time = Random_Exponential(SERVICE_RATE_2);
+    Event event = {
+        .time = s->clock + service_time,
+        .type = COMPLETE_2,
+        .job_id = job_id
+    };
+    Event_Stack_Add(&s->es, event);
+}
+
+static void
 Complete_Service_1(Simulation *s, uint64_t job_id)
 {
     s->server_1_busy = false;
 
+    if (s->server_2_busy) {
+        Fifo_Add(&s->q2, job_id);
+    } else {
+        Start_Service_2(s, job_id);
+    }
+
     if (s->q1.len > 0) {
         uint64_t next_job_id = Fifo_Pop(&s->q1);
         Start_Service_1(s, next_job_id);
+    }
+}
+
+static void
+Complete_Service_2(Simulation *s, uint64_t job_id)
+{
+    s->server_2_busy = false;
+
+    if (s->q2.len > 0) {
+        uint64_t next_job_id = Fifo_Pop(&s->q2);
+        Start_Service_2(s, next_job_id);
     }
 }
 
@@ -250,17 +318,25 @@ Arrival(Simulation *s)
     Event_Stack_Add(&s->es, next_arrival);
 }
 
-static void
+static Dist
 Run(Simulation *s)
 {
-    double d[0x100] = {0};
+    Dist d1 = {0};
+    Dist d2 = {0};
+    Dist dt = {0};
+
     Arrival(s);
     while (s->es.len > 0 && s->clock < DURATION) {
         Event e = Event_Stack_Pop(&s->es);
         double elapsed = e.time - s->clock;
 
-        uint64_t n = s->q1.len + (uint64_t) s->server_1_busy;
-        d[n] += elapsed;
+        uint64_t n1 = s->q1.len + (uint64_t) s->server_1_busy;
+        Dist_Add(&d1, n1, elapsed);
+
+        uint64_t n2 = s->q2.len + (uint64_t) s->server_2_busy;
+        Dist_Add(&d2, n2, elapsed);
+
+        Dist_Add(&dt, n1 + n2, elapsed);
 
         s->clock = e.time;
 
@@ -268,23 +344,25 @@ Run(Simulation *s)
             Arrival(s);
         } else if (e.type == COMPLETE_1) {
             Complete_Service_1(s, e.job_id);
+        } else if (e.type == COMPLETE_2) {
+            Complete_Service_2(s, e.job_id);
         } else {
             assert(false);
         }
     }
 
-    double tot = 0;
-    for (size_t i = 0; i < 0x100; i += 1) tot += d[i];
+    Dist_Normalize(&d1);
+    Dist_Normalize(&d2);
+    Dist_Normalize(&dt);
 
-    for (size_t i = 0; i < 0x100; i += 1) d[i] /= tot;
-
-    (void) d;
+    return dt;
 }
 
 int
 main(void)
 {
     Simulation s = {0};
-    Run(&s);
+    Dist d = Run(&s);
+    (void) d;
     return 0;
 }
