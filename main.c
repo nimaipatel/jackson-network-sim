@@ -7,16 +7,15 @@
 
 typedef enum {
     ARRIVAL,
-    START_1,
-    COMPLETE_1,
-    START_2,
-    COMPLETE_2,
+    START,
+    COMPLETE,
 } Event_Type;
 
 typedef struct {
     double time;
     uint64_t job_id;
     Event_Type type;
+    uint64_t service;
 } Event;
 
 typedef struct {
@@ -39,17 +38,14 @@ typedef struct {
 typedef struct {
 #define DURATION       10000
 #define ARRIVAL_RATE   2
-#define SERVICE_RATE_1 3
-#define SERVICE_RATE_2 5
+#define NUM_QUEUES 3
+    double service_rate[NUM_QUEUES];
 
     Event_Stack es;
     double clock;
 
-    bool server_1_busy;
-    Fifo q1;
-
-    bool server_2_busy;
-    Fifo q2;
+    bool busy[NUM_QUEUES];
+    Fifo queue[NUM_QUEUES];
 
     uint64_t total_jobs;
 } Simulation;
@@ -245,58 +241,38 @@ Random_Exponential(double lambda)
 }
 
 static void
-Start_Service_1(Simulation *s, uint64_t job_id)
+Start_Service(Simulation *s, uint64_t service, uint64_t job_id)
 {
-    s->server_1_busy = true;
+    s->busy[service] = true;
 
-    double service_time = Random_Exponential(SERVICE_RATE_1);
+    double service_time = Random_Exponential(s->service_rate[service]);
     Event event = {
         .time = s->clock + service_time,
-        .type = COMPLETE_1,
-        .job_id = job_id
+        .type = COMPLETE,
+        .service = service,
+        .job_id = job_id,
     };
     Event_Stack_Add(&s->es, event);
 }
 
 static void
-Start_Service_2(Simulation *s, uint64_t job_id)
+Complete_Service(Simulation *s, uint64_t service, uint64_t job_id)
 {
-    s->server_2_busy = true;
+    s->busy[service] = false;
 
-    double service_time = Random_Exponential(SERVICE_RATE_2);
-    Event event = {
-        .time = s->clock + service_time,
-        .type = COMPLETE_2,
-        .job_id = job_id
-    };
-    Event_Stack_Add(&s->es, event);
-}
+    if (service < NUM_QUEUES - 1) {
+        uint64_t next_service = service + 1;
 
-static void
-Complete_Service_1(Simulation *s, uint64_t job_id)
-{
-    s->server_1_busy = false;
-
-    if (s->server_2_busy) {
-        Fifo_Add(&s->q2, job_id);
-    } else {
-        Start_Service_2(s, job_id);
+        if (s->busy[next_service]) {
+            Fifo_Add(&s->queue[next_service], job_id);
+        } else {
+            Start_Service(s, next_service, job_id);
+        }
     }
 
-    if (s->q1.len > 0) {
-        uint64_t next_job_id = Fifo_Pop(&s->q1);
-        Start_Service_1(s, next_job_id);
-    }
-}
-
-static void
-Complete_Service_2(Simulation *s, uint64_t job_id)
-{
-    s->server_2_busy = false;
-
-    if (s->q2.len > 0) {
-        uint64_t next_job_id = Fifo_Pop(&s->q2);
-        Start_Service_2(s, next_job_id);
+    if (s->queue[service].len > 0) {
+        uint64_t next_job_id = Fifo_Pop(&s->queue[service]);
+        Start_Service(s, service, next_job_id);
     }
 }
 
@@ -304,10 +280,10 @@ static void
 Arrival(Simulation *s)
 {
     const uint64_t job_id = s->total_jobs++;
-    if (s->server_1_busy) {
-        Fifo_Add(&s->q1, job_id);
+    if (s->busy[0]) {
+        Fifo_Add(&s->queue[0], job_id);
     } else {
-        Start_Service_1(s, job_id);
+        Start_Service(s, 0, job_id);
     }
 
     const double iat = Random_Exponential(ARRIVAL_RATE);
@@ -321,8 +297,7 @@ Arrival(Simulation *s)
 static Dist
 Run(Simulation *s)
 {
-    Dist d1 = {0};
-    Dist d2 = {0};
+    Dist d[NUM_QUEUES] = {0};
     Dist dt = {0};
 
     Arrival(s);
@@ -330,29 +305,29 @@ Run(Simulation *s)
         Event e = Event_Stack_Pop(&s->es);
         double elapsed = e.time - s->clock;
 
-        uint64_t n1 = s->q1.len + (uint64_t) s->server_1_busy;
-        Dist_Add(&d1, n1, elapsed);
+        uint64_t n_total = 0;
+        for (size_t i = 0; i < NUM_QUEUES; i += 1) {
+            uint64_t n = s->queue[i].len + (uint64_t) s->busy[i];
+            n_total += n;
+            Dist_Add(&d[i], n, elapsed);
+        }
 
-        uint64_t n2 = s->q2.len + (uint64_t) s->server_2_busy;
-        Dist_Add(&d2, n2, elapsed);
-
-        Dist_Add(&dt, n1 + n2, elapsed);
+        Dist_Add(&dt, n_total, elapsed);
 
         s->clock = e.time;
 
         if (e.type == ARRIVAL) {
             Arrival(s);
-        } else if (e.type == COMPLETE_1) {
-            Complete_Service_1(s, e.job_id);
-        } else if (e.type == COMPLETE_2) {
-            Complete_Service_2(s, e.job_id);
+        } else if (e.type == COMPLETE) {
+            Complete_Service(s, e.service, e.job_id);
         } else {
             assert(false);
         }
     }
 
-    Dist_Normalize(&d1);
-    Dist_Normalize(&d2);
+    for (size_t i = 0; i < NUM_QUEUES; i += 1) {
+        Dist_Normalize(&d[i]);
+    }
     Dist_Normalize(&dt);
 
     return dt;
@@ -362,7 +337,11 @@ int
 main(void)
 {
     Simulation s = {0};
+    s.service_rate[0] = 3;
+    s.service_rate[1] = 5;
+
     Dist d = Run(&s);
     (void) d;
+
     return 0;
 }
