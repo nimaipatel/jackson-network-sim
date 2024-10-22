@@ -1,3 +1,21 @@
+//
+// Copyright (C) 2024 Patel, Nimai <nimai.m.patel@gmail.com>
+// Author: Patel, Nimai <nimai.m.patel@gmail.com>
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as
+// published by the Free Software Foundation, either version 3 of the
+// License, or (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+//
+
 #include <stdlib.h>
 #include <stdio.h>
 #include <stdint.h>
@@ -37,8 +55,8 @@ typedef struct {
 
 typedef struct {
 #define DURATION       10000
-#define ARRIVAL_RATE   2
-#define NUM_QUEUES 3
+#define NUM_QUEUES 2
+    double arrival_rate;
     double service_rate[NUM_QUEUES];
 
     Event_Stack es;
@@ -286,7 +304,7 @@ Arrival(Simulation *s)
         Start_Service(s, 0, job_id);
     }
 
-    const double iat = Random_Exponential(ARRIVAL_RATE);
+    const double iat = Random_Exponential(s->arrival_rate);
     const Event next_arrival = {
         .time = s->clock + iat,
         .type = ARRIVAL
@@ -337,6 +355,7 @@ int
 main(void)
 {
     Simulation s = {0};
+    s.arrival_rate = 2;
     s.service_rate[0] = 3;
     s.service_rate[1] = 5;
 
