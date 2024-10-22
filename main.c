@@ -54,16 +54,17 @@ typedef struct {
 } Event_Stack;
 
 typedef struct {
-#define DURATION       10000
-#define NUM_QUEUES 2
+#define MAX_NUM_QUEUES 0x1000
+    size_t num_queues;
+    double duration;
     double arrival_rate;
-    double service_rate[NUM_QUEUES];
+    double service_rate[MAX_NUM_QUEUES];
 
     Event_Stack es;
     double clock;
 
-    bool busy[NUM_QUEUES];
-    Fifo queue[NUM_QUEUES];
+    bool busy[MAX_NUM_QUEUES];
+    Fifo queue[MAX_NUM_QUEUES];
 
     uint64_t total_jobs;
 } Simulation;
@@ -117,12 +118,6 @@ Fifo_Full(Fifo *q)
     return q->len == q->cap;
 }
 
-static bool
-Fifo_Empty(Fifo *q)
-{
-    return q->len == 0;
-}
-
 static void
 Fifo_Add(Fifo *q, uint64_t job)
 {
@@ -143,7 +138,7 @@ Fifo_Add(Fifo *q, uint64_t job)
         q->jobs = jobs;
     }
 
-    if (Fifo_Empty(q)) {
+    if (q->len == 0) {
         q->start = 0;
         q->len = 1;
         q->jobs[0] = job;
@@ -156,7 +151,7 @@ Fifo_Add(Fifo *q, uint64_t job)
 static uint64_t
 Fifo_Pop(Fifo *q)
 {
-    assert(!Fifo_Empty(q));
+    assert(q->len > 0);
 
     const uint64_t result = q->jobs[q->start];
 
@@ -278,7 +273,7 @@ Complete_Service(Simulation *s, uint64_t service, uint64_t job_id)
 {
     s->busy[service] = false;
 
-    if (service < NUM_QUEUES - 1) {
+    if (service < s->num_queues - 1) {
         uint64_t next_service = service + 1;
 
         if (s->busy[next_service]) {
@@ -315,16 +310,16 @@ Arrival(Simulation *s)
 static Dist
 Run(Simulation *s)
 {
-    Dist d[NUM_QUEUES] = {0};
+    Dist d[MAX_NUM_QUEUES] = {0};
     Dist dt = {0};
 
     Arrival(s);
-    while (s->es.len > 0 && s->clock < DURATION) {
+    while (s->es.len > 0 && s->clock < s->duration) {
         Event e = Event_Stack_Pop(&s->es);
         double elapsed = e.time - s->clock;
 
         uint64_t n_total = 0;
-        for (size_t i = 0; i < NUM_QUEUES; i += 1) {
+        for (size_t i = 0; i < s->num_queues; i += 1) {
             uint64_t n = s->queue[i].len + (uint64_t) s->busy[i];
             n_total += n;
             Dist_Add(&d[i], n, elapsed);
@@ -343,7 +338,7 @@ Run(Simulation *s)
         }
     }
 
-    for (size_t i = 0; i < NUM_QUEUES; i += 1) {
+    for (size_t i = 0; i < s->num_queues; i += 1) {
         Dist_Normalize(&d[i]);
     }
     Dist_Normalize(&dt);
@@ -354,10 +349,12 @@ Run(Simulation *s)
 int
 main(void)
 {
-    Simulation s = {0};
-    s.arrival_rate = 2;
-    s.service_rate[0] = 3;
-    s.service_rate[1] = 5;
+    Simulation s = {
+        .duration = 10000,
+        .num_queues = 2,
+        .arrival_rate = 2,
+        .service_rate = {3, 5},
+    };
 
     Dist d = Run(&s);
     (void) d;
