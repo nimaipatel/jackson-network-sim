@@ -74,7 +74,7 @@ typedef struct
 #define DIST_INIT_SIZE 0x10
     double *items;
     size_t cap;
-} Dist;
+} Distribution;
 
 static inline size_t
 max_size_t(const size_t a, const size_t b)
@@ -83,7 +83,7 @@ max_size_t(const size_t a, const size_t b)
 }
 
 static void
-Dist_Add(Dist *dist, size_t index, double amount)
+Distribution_Add(Distribution *dist, size_t index, double amount)
 {
     if (index + 1 > dist->cap) {
         size_t cap = max_size_t(DIST_INIT_SIZE, 2 * index);
@@ -100,7 +100,7 @@ Dist_Add(Dist *dist, size_t index, double amount)
 }
 
 static void
-Dist_Normalize(Dist *dist)
+Distribution_Normalize(Distribution *dist)
 {
     double total = 0;
     for (size_t i = 0; i < dist->cap; i += 1) {
@@ -307,11 +307,11 @@ Arrival(Simulation *s)
     Event_Stack_Add(&s->es, next_arrival);
 }
 
-static Dist
+static Distribution
 Run(Simulation *s)
 {
-    Dist d[MAX_NUM_QUEUES] = {0};
-    Dist dt = {0};
+    Distribution d[MAX_NUM_QUEUES] = {0};
+    Distribution dt = {0};
 
     Arrival(s);
     while (s->es.len > 0 && s->clock < s->duration) {
@@ -322,10 +322,10 @@ Run(Simulation *s)
         for (size_t i = 0; i < s->num_queues; i += 1) {
             uint64_t n = s->queue[i].len + (uint64_t) s->busy[i];
             n_total += n;
-            Dist_Add(&d[i], n, elapsed);
+            Distribution_Add(&d[i], n, elapsed);
         }
 
-        Dist_Add(&dt, n_total, elapsed);
+        Distribution_Add(&dt, n_total, elapsed);
 
         s->clock = e.time;
 
@@ -339,9 +339,9 @@ Run(Simulation *s)
     }
 
     for (size_t i = 0; i < s->num_queues; i += 1) {
-        Dist_Normalize(&d[i]);
+        Distribution_Normalize(&d[i]);
     }
-    Dist_Normalize(&dt);
+    Distribution_Normalize(&dt);
 
     return dt;
 }
@@ -356,7 +356,7 @@ main(void)
         .service_rate = {3, 5},
     };
 
-    Dist d = Run(&s);
+    Distribution d = Run(&s);
     (void) d;
 
     return 0;
